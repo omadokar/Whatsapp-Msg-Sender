@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Automation</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .container {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            width: 80%;
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+        }
+
+        .section {
+            flex: 1;
+            margin: 0 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            width: 100%;
+        }
+
+        form {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+        }
+
+        label {
+            margin-bottom: 5px;
+            color: #555;
+        }
+
+        input,
+        textarea {
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+            width: 100%;
+        }
+
+        button {
+            padding: 10px;
+            background-color: #28a745;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background-color: #218838;
+        }
+
+        #numbers-list {
+            margin-top: 10px;
+            height: 200px;
+            overflow-y: auto;
+            width: 100%;
+        }
+
+        .number-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+            width: 100%;
+        }
+
+        .number-item span {
+            flex-grow: 1;
+            font-size: 14px;
+            color: #333;
+        }
+
+        .remove-btn {
+            margin-left: 10px;
+            cursor: pointer;
+            color: red;
+            background: none;
+            border: none;
+            font-size: 16px;
+        }
+
+        .remove-btn:hover {
+            color: darkred;
+        }
+
+        #qr-code img {
+            width: 100%;
+            height: auto;
+        }
+
+        .file-input {
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="section">
+            <h1>Numbers</h1>
+            <form id="number-form">
+                <label for="number">Phone Numbers (comma-separated):</label>
+                <input type="text" id="number" name="number" required>
+                <button type="submit">Add Numbers</button>
+            </form>
+            <div id="numbers-list"></div>
+        </div>
+        <div class="section">
+            <h1>QR Code</h1>
+            <div id="qr-code"></div>
+            <div id="status"></div>
+        </div>
+        <div class="section">
+            <h1>Message</h1>
+            <form id="message-form">
+                <label for="message">Message:</label>
+                <textarea id="message" name="message" rows="4" required></textarea>
+                <label for="image">Attach Image:</label>
+                <input type="file" id="image" class="file-input" accept="image/*">
+                <label for="pdf">Attach PDF:</label>
+                <input type="file" id="pdf" class="file-input" accept="application/pdf">
+                <button type="submit">Send Message</button>
+            </form>
+        </div>
+    </div>
+    <script>
+        const socket = io();
+
+        const numberForm = document.getElementById('number-form');
+        const numbersList = document.getElementById('numbers-list');
+        const messageForm = document.getElementById('message-form');
+        const qrCodeDiv = document.getElementById('qr-code');
+        const statusDiv = document.getElementById('status');
+        const messageInput = document.getElementById('message');
+        const imageInput = document.getElementById('image');
+        const pdfInput = document.getElementById('pdf');
+
+        let numbers = JSON.parse(localStorage.getItem('numbers')) || [];
+        renderNumbers();
+
+        socket.emit('logout');
+
+        numberForm.addEventListener('submit', (event) => {
+            event.preventDefault();
+            const numberInput = document.getElementById('number');
+            let numberStrings = numberInput.value.split(',').map(num => num.trim());
+
+            numberStrings.forEach(number => {
+                if (number && !number.startsWith('+91')) {
+                    number = +91${number};
+                }
+
+                if (number && !numbers.includes(number)) {
+                    numbers.push(number);
+                }
+            });
+
+            localStorage.setItem('numbers', JSON.stringify(numbers));
+            renderNumbers();
+            numberInput.value = '';
+        });
+
+        function renderNumbers() {
+            numbersList.innerHTML = '';
+            numbers.forEach((number, index) => {
+                const numberItem = document.createElement('div');
+                numberItem.className = 'number-item';
+                numberItem.innerHTML =
+                    <span>${number}</span><button class="remove-btn" data-index="${index}">x</button>;
+                numbersList.appendChild(numberItem);
+            });
+
+            document.querySelectorAll('.remove-btn').forEach(button => {
+                button.addEventListener('click', () => {
+                    const index = button.getAttribute('data-index');
+                    numbers.splice(index, 1);
+                    localStorage.setItem('numbers', JSON.stringify(numbers));
+                    renderNumbers();
+                });
+            });
+        }
+
+        messageForm.addEventListener('submit', (event) => {
+            event.preventDefault();
+            const message = messageInput.value.trim();
+            const imageFile = imageInput.files[0];
+
+            const reader = new FileReader();
+
+            reader.onload = () => {
+                const imageData = reader.result;
+                socket.emit('sendMessage', {
+                    numbers,
+                    message,
+                    image: imageData
+                });
+            };
+
+            if (imageFile) {
+                reader.readAsDataURL(imageFile); // Convert the image file to a base64 string
+            } else {
+                socket.emit('sendMessage', {
+                    numbers,
+                    message
+                });
+            }
+        });
+
+        socket.on('qr', (src) => {
+            qrCodeDiv.innerHTML = <img src="${src}" alt="QR Code">;
+        });
+
+        socket.on('ready', () => {
+            statusDiv.innerText = 'WhatsApp is ready!';
+            qrCodeDiv.style.display = 'none';
+        });
+
+        socket.on('auth_failure', (msg) => {
+            statusDiv.innerText = Authentication failure: ${msg};
+        });
+
+        socket.on('messageStatus', (data) => {
+            const {
+                number,
+                status,
+                response,
+                err
+            } = data;
+            if (status === 'success') {
+                console.log(Message sent successfully to ${number}:, response);
+            } else {
+                console.error(Failed to send message to ${number}:, err);
+            }
+        });
+    </script>
+</body>
+
+</html>
